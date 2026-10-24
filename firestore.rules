@@ -1,0 +1,108 @@
+// Excerpt of firestore.rules: only the collections purchaseLead touches.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================
+    // COMPANIES
+    // =========================
+    match /companies/{companyId} {
+      // All authenticated users can read company public info (dashboard listings)
+      allow read: if request.auth != null;
+
+      // Company owner can create their document but CANNOT set credits/demo fields from client
+      allow create: if request.auth != null
+        && request.auth.uid == companyId
+        && (request.auth.token.role == 'company' || request.auth.token.role == 'admin')
+        && !('credits' in request.resource.data.keys())
+        && !('demoEnabled' in request.resource.data.keys())
+        && !('demoExpiresAt' in request.resource.data.keys());
+
+      // Company owner can update their doc, but NOT credits/demo fields.
+      allow update: if request.auth != null
+        && request.auth.uid == companyId
+        && (request.auth.token.role == 'company' || request.auth.token.role == 'admin')
+        && resource.data.credits == request.resource.data.credits
+        && resource.data.demoEnabled == request.resource.data.demoEnabled
+        && resource.data.demoExpiresAt == request.resource.data.demoExpiresAt;
+
+      // Optional: forbid delete for safety
+      allow delete: if false;
+
+      // Subcollections (locations, employees, etc.)
+      match /{document=**} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null
+          && request.auth.uid == companyId
+          && (request.auth.token.role == 'company' || request.auth.token.role == 'admin');
+      }
+    }
+
+
+    // =========================
+    // LEADS (Lead-based marketplace)
+    // =========================
+    match /leads/{leadId} {
+
+      // --- CREATE ---
+      // Only the signed-in customer can create their own lead.
+      allow create: if request.auth != null
+        && request.resource.data.customerId == request.auth.uid
+        && (request.auth.token.role == 'customer' || request.auth.token.role == 'admin');
+
+      // --- READ ---
+      //  - customer can see their own leads
+      //  - company can see leads addressed to them
+      allow read: if request.auth != null
+        && (
+          resource.data.customerId == request.auth.uid ||
+          resource.data.companyId == request.auth.uid
+        );
+
+      // --- UPDATE ---
+      allow update: if request.auth != null
+        && (
+          // CUSTOMER UPDATE BRANCH
+          (
+            resource.data.customerId == request.auth.uid &&
+            (request.auth.token.role == 'customer' || request.auth.token.role == 'admin') &&
+            request.resource.data.customerId == resource.data.customerId &&
+            request.resource.data.companyId == resource.data.companyId &&
+
+            // Customer may change notes / preferences and cancel,
+            // but not force a different non-cancel status.
+            (
+              request.resource.data.status == resource.data.status ||
+              request.resource.data.status == "cancelled"
+            ) &&
+
+            // Customer cannot touch company-only fields:
+            request.resource.data.scheduledAt == resource.data.scheduledAt &&
+            request.resource.data.companyNotes == resource.data.companyNotes &&
+            request.resource.data.statusHistory == resource.data.statusHistory
+          )
+
+          ||
+
+          // COMPANY UPDATE BRANCH
+          (
+            resource.data.companyId == request.auth.uid &&
+            (request.auth.token.role == 'company' || request.auth.token.role == 'admin') &&
+            request.resource.data.customerId == resource.data.customerId &&
+            request.resource.data.companyId == resource.data.companyId
+            // Company can change:
+            //   - status
+            //   - scheduledAt
+            //   - companyNotes
+            //   - statusHistory
+            // (we don't need a hasOnly check; we just lock down critical fields below)
+          )
+        )
+        &&
+        // In ALL cases: client cannot modify purchase-related fields
+        request.resource.data.revealed == resource.data.revealed &&
+        request.resource.data.unlockedBy == resource.data.unlockedBy &&
+        request.resource.data.purchasedAt == resource.data.purchasedAt;
+    }
+  }
+}

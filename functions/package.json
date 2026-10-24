@@ -1,0 +1,19 @@
+{
+  "name": "sunchronize-purchase-lead-sample",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && firebase emulators:exec --config ../firebase.json --project demo-purchase-lead --only firestore,auth \"node --test test/purchase_lead.test.js\""
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}
